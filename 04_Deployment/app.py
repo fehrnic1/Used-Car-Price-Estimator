@@ -14,29 +14,45 @@ from pydantic import BaseModel, Field
 from transformers import pipeline
 
 # ---------------------------------------------------------------------------
-# Load models at startup
+# Load models at startup — wrapped so startup never crashes silently
 # ---------------------------------------------------------------------------
 
-# ML model (pickle — included in Space repo)
-with open("car_price_model.pkl", "rb") as f:
-    model_payload = pickle.load(f)
-ml_model = model_payload["model"]
-features = model_payload["features"]
-le       = model_payload["label_encoders"]
+STARTUP_ERRORS = []
 
-importances  = dict(zip(features, ml_model.feature_importances_))
-top_features = sorted(importances.items(), key=lambda x: x[1], reverse=True)[:5]
+try:
+    with open("car_price_model.pkl", "rb") as f:
+        model_payload = pickle.load(f)
+    ml_model     = model_payload["model"]
+    features     = model_payload["features"]
+    le           = model_payload["label_encoders"]
+    importances  = dict(zip(features, ml_model.feature_importances_))
+    top_features = sorted(importances.items(), key=lambda x: x[1], reverse=True)[:5]
+except Exception as e:
+    ml_model = None
+    STARTUP_ERRORS.append(f"ML model load failed: {e}")
 
-# Car recognition model (from HF Hub)
-RECOGNITION_MODEL_ID = os.environ.get("RECOGNITION_MODEL_ID", "fehrnic1/car-recognition-model")
-car_recognizer = pipeline("image-classification", model=RECOGNITION_MODEL_ID)
+try:
+    RECOGNITION_MODEL_ID = os.environ.get("RECOGNITION_MODEL_ID", "fehrnic1/car-recognition-model")
+    car_recognizer = pipeline("image-classification", model=RECOGNITION_MODEL_ID)
+except Exception as e:
+    car_recognizer = None
+    STARTUP_ERRORS.append(f"Recognition model load failed ({RECOGNITION_MODEL_ID}): {e}")
 
-# Car damage model (from HF Hub)
-DAMAGE_MODEL_ID  = os.environ.get("DAMAGE_MODEL_ID", "fehrnic1/car-damage-model")
-damage_classifier = pipeline("image-classification", model=DAMAGE_MODEL_ID)
+try:
+    DAMAGE_MODEL_ID   = os.environ.get("DAMAGE_MODEL_ID", "fehrnic1/car-damage-model")
+    damage_classifier = pipeline("image-classification", model=DAMAGE_MODEL_ID)
+except Exception as e:
+    damage_classifier = None
+    STARTUP_ERRORS.append(f"Damage model load failed ({DAMAGE_MODEL_ID}): {e}")
 
-# OpenAI client
-openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+try:
+    openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+except Exception as e:
+    openai_client = None
+    STARTUP_ERRORS.append(f"OpenAI client failed: {e}")
+
+if STARTUP_ERRORS:
+    print("STARTUP ERRORS:", STARTUP_ERRORS)
 
 # ---------------------------------------------------------------------------
 # Helper: parse brand + year from Stanford Cars class name
@@ -148,6 +164,8 @@ Provide a structured explanation with:
 
 def predict(image, description, milage_input):
     try:
+        if STARTUP_ERRORS:
+            return {"startup_errors": STARTUP_ERRORS}
         if image is None and (not description or not description.strip()):
             return {"error": "Please upload a photo or enter a description."}
 
