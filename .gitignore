@@ -1,0 +1,15 @@
+# API keys — never commit
+.env
+
+# Model weights — too large for GitHub, stored on Hugging Face Hub
+*.safetensors
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+
+# OS files
+.DS_Store
+Thumbs.db
