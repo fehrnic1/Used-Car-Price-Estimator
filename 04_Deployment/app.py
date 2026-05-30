@@ -1,19 +1,17 @@
+import base64
+import json
 import os
 import re
-import json
 import pickle
+import traceback
+
+import gradio as gr
 import numpy as np
 import pandas as pd
-import gradio as gr
-import torch
 from PIL import Image
-from pydantic import BaseModel, Field
 from openai import OpenAI
-from transformers import (
-    ViTForImageClassification,
-    AutoImageProcessor,
-    pipeline as hf_pipeline
-)
+from pydantic import BaseModel, Field
+from transformers import pipeline
 
 # ---------------------------------------------------------------------------
 # Load models at startup
@@ -22,27 +20,22 @@ from transformers import (
 # ML model (pickle — included in Space repo)
 with open("car_price_model.pkl", "rb") as f:
     model_payload = pickle.load(f)
-ml_model  = model_payload["model"]
-features  = model_payload["features"]
-le        = model_payload["label_encoders"]
+ml_model = model_payload["model"]
+features = model_payload["features"]
+le       = model_payload["label_encoders"]
 
-# Feature importances for explanation prompt
-importances    = dict(zip(features, ml_model.feature_importances_))
-top_features   = sorted(importances.items(), key=lambda x: x[1], reverse=True)[:5]
+importances  = dict(zip(features, ml_model.feature_importances_))
+top_features = sorted(importances.items(), key=lambda x: x[1], reverse=True)[:5]
 
 # Car recognition model (from HF Hub)
 RECOGNITION_MODEL_ID = os.environ.get("RECOGNITION_MODEL_ID", "YOUR_HF_USERNAME/car-recognition-model")
-recog_processor = AutoImageProcessor.from_pretrained(RECOGNITION_MODEL_ID)
-recog_model     = ViTForImageClassification.from_pretrained(RECOGNITION_MODEL_ID)
-car_recognizer  = hf_pipeline("image-classification", model=recog_model, image_processor=recog_processor)
+car_recognizer = pipeline("image-classification", model=RECOGNITION_MODEL_ID)
 
 # Car damage model (from HF Hub)
 DAMAGE_MODEL_ID  = os.environ.get("DAMAGE_MODEL_ID", "YOUR_HF_USERNAME/car-damage-model")
-damage_processor = AutoImageProcessor.from_pretrained(DAMAGE_MODEL_ID)
-damage_model     = ViTForImageClassification.from_pretrained(DAMAGE_MODEL_ID)
-damage_classifier = hf_pipeline("image-classification", model=damage_model, image_processor=damage_processor)
+damage_classifier = pipeline("image-classification", model=DAMAGE_MODEL_ID)
 
-# OpenAI client (API key from Space secret)
+# OpenAI client
 openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 # ---------------------------------------------------------------------------
@@ -56,33 +49,7 @@ def parse_class(class_name):
     return brand, model_year
 
 # ---------------------------------------------------------------------------
-# CV: predict from image
-# ---------------------------------------------------------------------------
-
-def predict_from_image(image: Image.Image):
-    # Car recognition → brand + model_year
-    recog_result = car_recognizer(image)
-    top_recog    = max(recog_result, key=lambda x: x["score"])
-    brand, model_year = parse_class(top_recog["label"])
-
-    # Damage assessment → condition_score
-    damage_result   = damage_classifier(image)
-    top_damage      = max(damage_result, key=lambda x: x["score"])
-    damage_label2id = {v: k for k, v in damage_model.config.id2label.items()}
-    condition_score = damage_label2id.get(top_damage["label"], 0)
-
-    return {
-        "brand":           brand,
-        "model_year":      model_year,
-        "condition_score": condition_score,
-        "_recog_label":    top_recog["label"],
-        "_recog_conf":     top_recog["score"],
-        "_damage_label":   top_damage["label"],
-        "_damage_conf":    top_damage["score"],
-    }
-
-# ---------------------------------------------------------------------------
-# NLP: extract features from text
+# NLP: extract features from text description
 # ---------------------------------------------------------------------------
 
 class CarFeatures(BaseModel):
@@ -94,16 +61,14 @@ class CarFeatures(BaseModel):
     has_accident:     int = Field(description="1 if any accident history, 0 if none")
     clean_title_flag: int = Field(description="1 if clean title, 0 if salvage/rebuilt")
 
-SYSTEM_PROMPT = """
-You are a car data extraction specialist. Extract structured information from
+SYSTEM_PROMPT = """You are a car data extraction specialist. Extract structured information from
 natural language car descriptions. Normalise:
 - Fuel types to: Gasoline, Diesel, Electric, Hybrid
 - Transmission to: Automatic, Manual
 - Any accident/collision/fender bender → has_accident = 1
-- Salvage/rebuilt title → clean_title_flag = 0
-"""
+- Salvage/rebuilt title → clean_title_flag = 0"""
 
-def extract_from_text(description: str) -> dict:
+def extract_from_text(description):
     response = openai_client.beta.chat.completions.parse(
         model="gpt-4o-mini",
         messages=[
@@ -119,7 +84,7 @@ def extract_from_text(description: str) -> dict:
 # ML: predict price
 # ---------------------------------------------------------------------------
 
-def predict_price(extracted: dict) -> float:
+def predict_price(extracted):
     brand        = extracted.get("brand", "Other")
     model_year   = extracted.get("model_year", 2015)
     milage       = extracted.get("milage", 60000)
@@ -152,10 +117,9 @@ def predict_price(extracted: dict) -> float:
 # NLP: generate explanation
 # ---------------------------------------------------------------------------
 
-def generate_explanation(extracted: dict, price: float) -> str:
+def generate_explanation(extracted, price):
     feature_str = "\n".join([f"  - {f} (importance: {imp:.3f})" for f, imp in top_features])
-    prompt = f"""
-Predicted price: ${price:,.0f}
+    prompt = f"""Predicted price: ${price:,.0f}
 
 Car details:
 {json.dumps(extracted, indent=2)}
@@ -166,8 +130,8 @@ The model's top 5 most important features are:
 Provide a structured explanation with:
 1. One sentence summarising the estimated price
 2. Two or three bullet points identifying the most significant price drivers
-3. One sentence noting any limitations or uncertainty
-"""
+3. One sentence noting any limitations or uncertainty"""
+
     response = openai_client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
@@ -179,100 +143,101 @@ Provide a structured explanation with:
     return response.choices[0].message.content.strip()
 
 # ---------------------------------------------------------------------------
-# Main prediction function
+# Main prediction function — same pattern as week 7 reference
 # ---------------------------------------------------------------------------
 
-def predict(image, description, milage_override):
-    if image is None and not description.strip():
-        return "Please upload a photo or enter a description.", "", ""
+def predict(image, description, milage_input):
+    try:
+        if image is None and (not description or not description.strip()):
+            return {"error": "Please upload a photo or enter a description."}
 
-    extracted = {}
+        extracted = {}
 
-    # Image path
-    if image is not None:
-        img = Image.fromarray(image).convert("RGB")
-        cv_result = predict_from_image(img)
-        extracted.update({
-            "brand":           cv_result["brand"],
-            "model_year":      cv_result["model_year"],
-            "condition_score": cv_result["condition_score"],
-        })
-        cv_summary = (
-            f"**Recognised:** {cv_result['_recog_label']} ({cv_result['_recog_conf']:.1%} confidence)\n"
-            f"**Damage:** {cv_result['_damage_label']} ({cv_result['_damage_conf']:.1%} confidence)"
-        )
-    else:
-        cv_summary = "No image provided."
+        # --- CV path (image provided) ---
+        if image is not None:
+            img = Image.open(image).convert("RGB")
 
-    # Text path — fills in or overrides extracted fields
-    if description.strip():
-        text_features = extract_from_text(description)
-        for k, v in text_features.items():
-            if k not in extracted or v:
-                extracted[k] = v
+            recog_result  = car_recognizer(img)
+            top_recog     = max(recog_result, key=lambda x: x["score"])
+            brand, model_year = parse_class(top_recog["label"])
 
-    # Manual mileage override (user input always wins)
-    if milage_override and milage_override > 0:
-        extracted["milage"] = int(milage_override)
+            damage_result = damage_classifier(img)
+            top_damage    = max(damage_result, key=lambda x: x["score"])
+            damage_id2label = damage_classifier.model.config.id2label
+            damage_label2id = {v: k for k, v in damage_id2label.items()}
+            condition_score = damage_label2id.get(top_damage["label"], 0)
 
-    # Default mileage if still missing
-    if "milage" not in extracted:
-        extracted["milage"] = 60000
+            extracted.update({
+                "brand": brand, "model_year": model_year,
+                "condition_score": condition_score
+            })
+            cv_info = {
+                "recognised_class": top_recog["label"],
+                "recognition_confidence": round(top_recog["score"], 4),
+                "damage_class": top_damage["label"],
+                "damage_confidence": round(top_damage["score"], 4),
+            }
+        else:
+            cv_info = "No image provided."
 
-    # Predict price
-    price = predict_price(extracted)
+        # --- NLP path (text provided) ---
+        if description and description.strip():
+            text_features = extract_from_text(description)
+            for k, v in text_features.items():
+                if k not in extracted or v:
+                    extracted[k] = v
 
-    # Generate explanation
-    explanation = generate_explanation(extracted, price)
+        # --- Mileage override ---
+        if milage_input and float(milage_input) > 0:
+            extracted["milage"] = int(float(milage_input))
+        if "milage" not in extracted:
+            extracted["milage"] = 60000
 
-    price_str = f"## Estimated Price: ${price:,.0f}"
-    details   = f"**Extracted features:**\n```json\n{json.dumps(extracted, indent=2)}\n```\n\n{cv_summary}"
+        # --- ML prediction ---
+        price = predict_price(extracted)
 
-    return price_str, explanation, details
+        # --- NLP explanation ---
+        explanation = generate_explanation(extracted, price)
+
+        return {
+            "estimated_price": f"${price:,.0f}",
+            "explanation": explanation,
+            "extracted_features": extracted,
+            "cv_analysis": cv_info
+        }
+
+    except Exception as e:
+        return {"error": str(e), "traceback": traceback.format_exc()}
+
 
 # ---------------------------------------------------------------------------
-# Gradio UI
+# Gradio Interface — same pattern as reference projects
 # ---------------------------------------------------------------------------
 
-with gr.Blocks(title="Used Car Price Estimator") as demo:
-    gr.Markdown("# 🚗 Used Car Price Estimator")
-    gr.Markdown(
-        "Upload a photo of your car **and/or** describe it in text. "
-        "The system identifies the car, assesses its condition, predicts the market price, "
+iface = gr.Interface(
+    fn=predict,
+    inputs=[
+        gr.Image(type="filepath", label="Car Photo (optional)"),
+        gr.Textbox(
+            label="Car Description (optional)",
+            placeholder="e.g. 2019 BMW 3 Series, 45,000 miles, gasoline, automatic, no accidents, clean title",
+            lines=3
+        ),
+        gr.Number(label="Mileage (miles) — required if not in description", value=None)
+    ],
+    outputs=gr.JSON(label="Result"),
+    title="Used Car Price Estimator",
+    description=(
+        "Upload a car photo **and/or** describe your car in text. "
+        "The system identifies the car, assesses damage, predicts the market price, "
         "and explains the key factors."
-    )
+    ),
+    examples=[
+        [None, "2019 BMW 3 Series, 45,000 miles, gasoline, automatic, no accidents, clean title", 45000],
+        [None, "2015 Toyota Camry, 87,000 miles, gasoline, manual, had one accident, clean title", 87000],
+        [None, "2022 Tesla Model 3, 28,000 miles, electric, automatic, no accidents, clean title", 28000],
+    ]
+)
 
-    with gr.Row():
-        with gr.Column():
-            image_input = gr.Image(label="Car Photo (optional)")
-            text_input  = gr.Textbox(
-                label="Car Description (optional)",
-                placeholder="e.g. 2019 BMW 3 Series, 45,000 miles, gasoline, automatic, no accidents, clean title",
-                lines=3
-            )
-            milage_input = gr.Number(
-                label="Mileage (miles) — required if not in description",
-                value=None,
-                precision=0
-            )
-            submit_btn = gr.Button("Estimate Price", variant="primary")
-
-        with gr.Column():
-            price_output       = gr.Markdown(label="Price Estimate")
-            explanation_output = gr.Markdown(label="Explanation")
-            details_output     = gr.Markdown(label="Details")
-
-    submit_btn.click(
-        fn=predict,
-        inputs=[image_input, text_input, milage_input],
-        outputs=[price_output, explanation_output, details_output]
-    )
-
-    gr.Markdown(
-        "**Example descriptions you can copy:**\n"
-        "- `2019 BMW 3 Series, 45,000 miles, gasoline, automatic, no accidents, clean title`\n"
-        "- `2015 Toyota Camry, 87,000 miles, gasoline, manual, had one accident, clean title`\n"
-        "- `2022 Tesla Model 3, 28,000 miles, electric, automatic, no accidents, clean title`"
-    )
-
-demo.launch(server_name="0.0.0.0", server_port=7860, show_api=False)
+if __name__ == "__main__":
+    iface.launch()
