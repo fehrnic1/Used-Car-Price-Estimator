@@ -268,12 +268,11 @@ with gr.Blocks(title="Used Car Price Estimator") as demo:
         outputs=[price_output, explanation_output, details_output]
     )
 
-    gr.Examples(
-        examples=[
-            [None, "2019 BMW 3 Series, 45,000 miles, gasoline, automatic, no accidents, clean title", 45000],
-            [None, "2015 Toyota Camry, 87,000 miles, gasoline, manual, had one accident, clean title", 87000],
-        ],
-        inputs=[image_input, text_input, milage_input]
+    gr.Markdown(
+        "**Example descriptions you can copy:**\n"
+        "- `2019 BMW 3 Series, 45,000 miles, gasoline, automatic, no accidents, clean title`\n"
+        "- `2015 Toyota Camry, 87,000 miles, gasoline, manual, had one accident, clean title`\n"
+        "- `2022 Tesla Model 3, 28,000 miles, electric, automatic, no accidents, clean title`"
     )
 
-demo.launch()
+demo.launch(server_name="0.0.0.0", server_port=7860, show_api=False)
