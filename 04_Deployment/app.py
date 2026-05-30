@@ -28,11 +28,11 @@ importances  = dict(zip(features, ml_model.feature_importances_))
 top_features = sorted(importances.items(), key=lambda x: x[1], reverse=True)[:5]
 
 # Car recognition model (from HF Hub)
-RECOGNITION_MODEL_ID = os.environ.get("RECOGNITION_MODEL_ID", "YOUR_HF_USERNAME/car-recognition-model")
+RECOGNITION_MODEL_ID = os.environ.get("RECOGNITION_MODEL_ID", "fehrnic1/car-recognition-model")
 car_recognizer = pipeline("image-classification", model=RECOGNITION_MODEL_ID)
 
 # Car damage model (from HF Hub)
-DAMAGE_MODEL_ID  = os.environ.get("DAMAGE_MODEL_ID", "YOUR_HF_USERNAME/car-damage-model")
+DAMAGE_MODEL_ID  = os.environ.get("DAMAGE_MODEL_ID", "fehrnic1/car-damage-model")
 damage_classifier = pipeline("image-classification", model=DAMAGE_MODEL_ID)
 
 # OpenAI client
