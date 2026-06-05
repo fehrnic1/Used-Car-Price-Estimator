@@ -172,6 +172,26 @@ def predict(image_file, description, milage_str):
 # Gradio Interface — reference project style
 # ---------------------------------------------------------------------------
 
+# Build example list from images/ folder — same pattern as week 7 reference
+IMAGE_FOLDER = "images"
+EXAMPLE_DESCRIPTIONS = [
+    "In excellent overall condition with barely any signs of wear. Runs on gasoline with an automatic transmission. Only 28,000 miles on the clock and has a completely clean accident history.",
+    "Generally well-maintained but showing some age. Gasoline engine with automatic transmission. Around 72,000 miles driven and was involved in one minor accident, though the title remains clean.",
+    "Shows significant wear and has clearly seen heavy use. Gasoline engine with manual transmission. Over 155,000 miles on the odometer and has been in multiple accidents — salvage title."
+]
+EXAMPLE_MILEAGES = ["28000", "72000", "155000"]
+
+example_images = []
+if os.path.isdir(IMAGE_FOLDER):
+    image_files = sorted([
+        f for f in os.listdir(IMAGE_FOLDER)
+        if f.lower().endswith((".jpg", ".jpeg", ".png", ".webp"))
+    ])
+    for i, fname in enumerate(image_files):
+        desc = EXAMPLE_DESCRIPTIONS[i] if i < len(EXAMPLE_DESCRIPTIONS) else ""
+        mil  = EXAMPLE_MILEAGES[i]     if i < len(EXAMPLE_MILEAGES)     else ""
+        example_images.append([os.path.join(IMAGE_FOLDER, fname), desc, mil])
+
 iface = gr.Interface(
     fn=predict,
     inputs=[
@@ -190,7 +210,8 @@ iface = gr.Interface(
         gr.Textbox(label="Details", lines=6)
     ],
     title="Used Car Price Estimator",
-    description="Upload a car photo and/or describe your car in text. Get an estimated market price with an explanation of the key factors."
+    description="Upload a car photo and/or describe your car in text. Get an estimated market price with an explanation of the key factors.",
+    examples=example_images if example_images else None
 )
 
 if __name__ == "__main__":
