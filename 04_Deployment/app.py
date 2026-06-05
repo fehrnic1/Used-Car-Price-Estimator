@@ -100,7 +100,7 @@ def generate_explanation(extracted, price):
     prompt = f"""Predicted price: ${price:,.0f}
 Car details: {json.dumps(extracted, indent=2)}
 Top 5 model features: {feature_str}
-Write: 1 summary sentence, 2-3 bullet points on key price drivers, 1 uncertainty note."""
+Write: 1 summary sentence, then 2-3 bullet points on the most significant price drivers."""
     response = openai_client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
