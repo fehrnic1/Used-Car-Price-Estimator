@@ -1,4 +1,4 @@
-# AI Applications Project Documentation Template
+# AI Applications Project Documentation
 
 Use this template to document your project concisely and completely.
 Fill in all required fields. Keep answers short and precise.
@@ -25,17 +25,17 @@ Reference to multiple lines in `train.py`, lines 15-38:
 ## Project Metadata
 
 - Project title: Used Car Price Estimator
-- Student: Nicolas Fehr
-- GitHub repository URL: [TODO: add after repo is created]
-- Deployment URL: [TODO: add after deployment]
-- Submission date: 07 June 2026
+- Student: Nicolas Fehr (fehrnic1)
+- GitHub repository URL: https://github.com/fehrnic1/Used-Car-Price-Estimator
+- Deployment URL: https://huggingface.co/spaces/fehrnic1/used-car-price-estimator
+- Submission date: 06 June 2026
 
 ### Mandatory Setup Checks
 
 - [x] At least 2 blocks selected
 - [x] Multiple and different data sources used
-- [ ] Deployment URL provided
-- [ ] Required GitHub users added to repository (`jasminh`, `bkuehnis`)
+- [x] Deployment URL provided
+- [x] Required GitHub users added to repository (`jasminh`, `bkuehnis`)
 
 ## Selected AI Blocks
 
@@ -44,8 +44,9 @@ Reference to multiple lines in `train.py`, lines 15-38:
 - [x] Computer Vision
 
 Primary blocks used for core solution (choose 2):
-- Primary block 1: ML Numeric Data
+- Primary block 1: Machine Learning Numeric Data
 - Primary block 2: Computer Vision
+- Primary block 3: Natural Language Processing
 
 If a third block is selected, it is documented and graded separately as extra work.
 
@@ -59,12 +60,15 @@ Evidence hint: Show where each selected block contributes to the final system.
 ### 1.1 Problem Definition
 - Problem statement: Used car prices are opaque and hard to assess — buyers and sellers lack a reliable, explainable valuation tool that accounts for both structured car data and visible damage.
 - Goal: Build a system that predicts a used car's market price from structured features and a photo-based damage assessment, and explains the result in plain language.
-- Success criteria: RMSE below $5,000 on the ML price prediction; accurate damage classification (3 classes); coherent natural language explanation of each prediction.
+- Success criteria: RMSE below $5,000 on the ML price prediction; accurate damage classification (3 classes); coherent natural language explanation of each prediction. The RMSE target was not met (best: $10,816 with Gradient Boosting). The main reasons are the small dataset (~4,000 rows) covering a very wide price range ($1,000–$200,000), missing engine HP values for ~800 rows, and luxury/exotic cars being underrepresented, pulling the RMSE up disproportionately. More training data and models such as XGBoost or LightGBM would likely close this gap.
 
 ### 1.2 Integration Logic
-- How the selected blocks interact: The CV block runs two models on the uploaded car photo: (1) a car recognition model that extracts `brand` and `model_year`, and (2) a damage model that outputs a `condition_score`. These three values are passed as features to the ML block, which predicts the price. The predicted price and top feature importances are passed to the NLP block, which generates a plain-language explanation.
-- Data and output flow between blocks: `Car photo → CV (recognition) → brand + model_year → ML → predicted_price → NLP → explanation`
-  `Car photo → CV (damage) → condition_score (0=minor, 1=moderate, 2=severe) → ML`
+- How the selected blocks interact:
+The user can provide a car photo, a text description, or both. If a photo is uploaded, the CV block runs two models: a car recognition model that extracts brand and model_year, and a damage model that outputs a condition_score. If a text description is provided, the NLP block extracts structured features (brand, model_year, mileage, fuel type, transmission, accident history) directly from the natural language input. Both paths feed into the ML block, which predicts the price. The predicted price and top feature importances are then passed back to the NLP block to generate a plain-language explanation.
+- Data and output flow between blocks:
+`Car photo → CV (recognition) → brand + model_year → ML → predicted_price → NLP → explanation`
+`Car photo → CV (damage) → condition_score (0=minor, 1=moderate, 2=severe) → ML`
+`Text description → NLP (extraction) → brand, model_year, milage, fuel_type, transmission, has_accident → ML`
 
 Guidance hint: This section should be short. The detailed work belongs in block sections.
 Evidence hint: Include one clear pipeline overview.
@@ -96,21 +100,21 @@ List every usage of a data source as a separate entry. If the same source is use
 #### 2A.4 Model Comparison and Iterations
 | Iteration | Objective | Key changes | Models used | Main metric | Change vs previous |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Baseline | Only `model_year` and `milage` | Linear Regression, Random Forest | Test RMSE: [TODO] / [TODO] | — |
-| 2 | Add categorical + engineered features | `brand_enc`, `fuel_type_enc`, `transmission_enc`, `car_age`, `age_times_milage`, `has_accident`, `clean_title_flag` | Linear Regression, Random Forest | Test RMSE: [TODO] / [TODO] | [TODO vs Iter 1] |
-| 3 | Full feature set + stronger model | Added `engine_hp`, `condition_score`; RF with n=200; added Gradient Boosting | Random Forest (n=200), Gradient Boosting | Test RMSE: [TODO] / [TODO] | [TODO vs Iter 2] |
+| 1 | Baseline | Only `model_year` and `milage` | Linear Regression, Random Forest | LR Test RMSE: $22,527 (R²=0.38) / RF Test RMSE: $24,299 (R²=0.28) | — |
+| 2 | Add categorical + engineered features | `brand_enc`, `fuel_type_enc`, `transmission_enc`, `car_age`, `age_times_milage`, `has_accident`, `clean_title_flag` | Linear Regression, Random Forest | LR Test RMSE: $21,686 (R²=0.43) / RF Test RMSE: $19,313 (R²=0.54) | RF −$4,986 (−20.5%) |
+| 3 | Full feature set + stronger model | Added `engine_hp`, `condition_score`; RF with n=200; added Gradient Boosting | Random Forest (n=200), Gradient Boosting | RF Test RMSE: $12,081 (R²=0.80) / GB Test RMSE: $10,816 (R²=0.84) | RF −$7,232 (−37.5%) vs Iter 2 |
 
 See *Iteration 1–3* in [`01_ML_Numeric/used_car_price_prediction.ipynb`](01_ML_Numeric/used_car_price_prediction.ipynb)
 
 #### 2A.5 Evaluation and Error Analysis
 - Metrics used: R² (coefficient of determination), RMSE (Root Mean Squared Error), 5-fold cross-validation RMSE
-- Final results: Best model — Random Forest (Iteration 3). Test R²: 0.802, Test RMSE: 12081.1
-- Error patterns and likely causes: [TODO: describe after reviewing residuals plot — e.g. larger errors at high price range, luxury/exotic cars likely underrepresented in training data]
+- Final results: Best model — Random Forest (Iteration 3, n=200). Test R²: 0.802, Test RMSE: $12,081. Note: Gradient Boosting achieved a slightly better test R² (0.841) and RMSE ($10,816) but the Random Forest was selected as the saved model.
+- Error patterns and likely causes: The top 10 worst predictions all fall in the $36,000–$179,000 price range, with absolute errors between $43,500 and $70,700. Errors occur in both directions — the model both significantly underestimates high-value cars (e.g. actual $127,899 predicted $57,190) and overestimates some mid-range cars (e.g. actual $54,900 predicted $112,330). The likely cause is that rare, luxury, and exotic vehicles are underrepresented in the ~4,000-row training dataset, making the model revert to average predictions for unusual configurations. Engine horsepower missing values (only 3,201 of 4,009 rows) also reduce accuracy for cars where HP is a key price driver.
 
 See *Error Analysis* in [`01_ML_Numeric/used_car_price_prediction.ipynb`](01_ML_Numeric/used_car_price_prediction.ipynb#5-error-analysis)
 
 #### 2A.6 Integration with Other Block(s)
-- Inputs received from other block(s): `brand` (str) + `model_year` (int) from the CV recognition model; `condition_score` (0 = minor, 1 = moderate, 2 = severe) from the CV damage model.
+- Inputs received from other block(s): `brand` (str) + `model_year` (int) from the CV recognition model; `condition_score` (0 = minor, 1 = moderate, 2 = severe) from the CV damage model; alternatively, when a text description is provided, `brand`, `model_year`, `milage`, `fuel_type`, `transmission`, `has_accident`, `clean_title_flag` are extracted by the NLP block and passed directly to the ML model.
 - Outputs provided to other block(s): Predicted price (USD) passed to the NLP block to generate a natural language valuation explanation.
 
 Guidance hint: Keep entries practical and evidence-based.
@@ -152,7 +156,7 @@ This block serves two roles: (1) extracting structured features from a user's na
 | --- | --- | --- | --- | --- | --- |
 | 1 | Basic explanation | Minimal prompt, no context | `gpt-4o-mini` | 3/5 — generic, does not reference specific features | — |
 | 2 | Feature-aware explanation | Prompt includes top-5 ML feature importances by weight | `gpt-4o-mini` | 4/5 — explicitly mentions mileage, age, brand as drivers | +1 point |
-| 3 | Structured expert explanation | System message + structured output format (summary + bullet points + uncertainty note) | `gpt-4o-mini` | 5/5 — clear, structured, references both positive and negative price drivers | +1 point |
+| 3 | Structured expert explanation | System message + structured output format (summary + bullet points on key price drivers) | `gpt-4o-mini` | 5/5 — clear, structured, references both positive and negative price drivers | +1 point |
 
 See *Iteration 1–3* in [`03_NLP/car_price_nlp.ipynb`](03_NLP/car_price_nlp.ipynb)
 
@@ -223,9 +227,15 @@ See *Error Analysis* in [`02_Computer_Vision/car_recognition.ipynb`](02_Computer
 
 ## 3. Deployment
 
-- Deployment URL: [TODO]
-- Main user flow: User uploads a car photo and enters basic car details → CV assesses damage → ML predicts price → NLP explains the result
-- Screenshot or short demo: [TODO]
+- Deployment URL: https://huggingface.co/spaces/fehrnic1/used-car-price-estimator
+- Main user flow: User uploads a car photo and/or enters a text description → CV identifies the car and assesses damage → NLP extracts structured features from text → ML predicts the price → NLP generates a plain-language explanation
+- Screenshot or short demo:
+
+  ![Empty UI](04_Deployment/screenshots/empty.png)
+  *Figure 1 — UI on load with example inputs visible*
+
+  ![Filled UI](04_Deployment/screenshots/filled.png)
+  *Figure 2 — UI after prediction with price estimate and explanation*
 
 Guidance hint: Deployment must be usable.
 Evidence hint: Add screenshots or short demo references.
@@ -237,7 +247,7 @@ Evidence hint: Add screenshots or short demo references.
 - Environment setup: ML and CV training notebooks run on Kaggle (free GPU, datasets pre-attached). NLP notebook runs locally — install with `pip install openai python-dotenv pydantic`. Requires an OpenAI API key in `03_NLP/.env` as `OPENAI_API_KEY=sk-...`
 - Data setup: ML block — attach [Used Car Price Prediction Dataset](https://www.kaggle.com/datasets/taeefnajib/used-car-price-prediction-dataset) on Kaggle. CV block — attach [Stanford Car Dataset by Classes Folder](https://www.kaggle.com/datasets/jutrera/stanford-car-dataset-by-classes-folder) and [Car Damage Severity Dataset](https://www.kaggle.com/datasets/prajwalbhamere/car-damage-severity-dataset) on Kaggle.
 - Training command(s): Run all cells in `01_ML_Numeric/used_car_price_prediction.ipynb` on Kaggle → output: `car_price_model.pkl`. Run `02_Computer_Vision/car_recognition.ipynb` on Kaggle → output: `car_recognition_model/`. Run `02_Computer_Vision/car_damage_classification.ipynb` on Kaggle → output: `car_damage_model/`. NLP block requires no training — run `03_NLP/car_price_nlp.ipynb` locally to reproduce evaluation results.
-- Inference/run command(s): [TODO: add after deployment app is built]
+- Inference/run command(s): Open https://huggingface.co/spaces/fehrnic1/used-car-price-estimator in a browser. No local setup required.
 - Reproducibility notes: All train/test splits use `random_state=42`. Models are saved with all label encoders bundled in the pickle file.
 
 ---
@@ -255,4 +265,4 @@ Use this section for exceptional work beyond the core requirements.
 
 Evidence for selected bonus items:
 - All three blocks (ML, CV, NLP) are implemented and meaningfully integrated through a shared data pipeline (`condition_score` → `predicted_price` → `explanation`).
-- Three distinct data sources are used: structured car listings (ML), car damage images (CV), and LLM/RAG (NLP).
+- Four distinct data sources are used: structured car listings (ML), Stanford Cars images (CV recognition), car damage severity images (CV damage), and OpenAI LLM API with prompt engineering (NLP).
